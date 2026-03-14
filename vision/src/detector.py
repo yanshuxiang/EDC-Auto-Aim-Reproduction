@@ -55,16 +55,17 @@ class Detector:
             x, y, w, h = cv2.boundingRect(contour)
             center_x = x + w / 2
             center_y = y + h / 2
-            rect_features.append((contour, x, w, h, center_x, center_y))
+            rect_features.append((contour, x, y, w, h, center_x, center_y))
 
         matched_indexes = set()
-        for (i, (_, x1, w1, h1, cx1, cy1)), (j, (_, x2, w2, h2, cx2, cy2)) in combinations(
+        for (i, (_, x1, y1, w1, h1, cx1, cy1)), (j, (_, x2, y2, w2, h2, cx2, cy2)) in combinations(
             enumerate(rect_features), 2
         ):
             x_limit = max(w1, w2) / 10
             y_limit = max(h1, h2) / 10
             x_gap_limit = max(w1, w2) / 5
-            if abs(cx1 - cx2) < x_limit and abs(cy1 - cy2) < y_limit and abs(x1 - x2) <= x_gap_limit:
+            y_gap_limit = max(h1, h2) / 5
+            if abs(cx1 - cx2) < x_limit and abs(cy1 - cy2) < y_limit and abs(x1 - x2) <= x_gap_limit and abs(y1 - y2) <= y_gap_limit:
                 matched_indexes.update({i, j})
 
         return [rect_features[i][0] for i in sorted(matched_indexes)]

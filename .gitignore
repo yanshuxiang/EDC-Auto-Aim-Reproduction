@@ -18,3 +18,5 @@ wrong_pic_pure/
 # Python cache
 __pycache__/
 *.pyc
+
+imitate/
