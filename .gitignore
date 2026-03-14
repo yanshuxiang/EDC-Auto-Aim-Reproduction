@@ -1,0 +1,20 @@
+# Jupyter Notebook
+*.ipynb
+.ipynb_checkpoints/
+
+# Media files
+media/
+
+# Output
+*.mp4
+
+# IDE files
+.idea/
+
+# Debug
+wrong_pic/
+wrong_pic_pure/
+
+# Python cache
+__pycache__/
+*.pyc
