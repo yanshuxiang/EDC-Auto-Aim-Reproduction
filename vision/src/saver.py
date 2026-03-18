@@ -1,5 +1,6 @@
 import os
 import shutil
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -9,16 +10,19 @@ class ResultSaver:
     def __init__(
         self,
         output_video_path="output.mp4",
-        wrong_dir="\debug\wrong_pic",
-        wrong_pure_dir="debug\wrong_pic_pure",
-        normal_dir=r"debug\normal",
+        wrong_dir="debug/wrong_pic",
+        wrong_pure_dir="debug/wrong_pic_pure",
+        normal_dir="debug/normal",
+        base_dir=None,
         fps=30.0,
         frame_size=(1280, 720),
     ):
+
+        self.base_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parent.parent
         self.output_video_path = output_video_path
-        self.wrong_dir = wrong_dir
-        self.wrong_pure_dir = wrong_pure_dir
-        self.normal_dir = normal_dir
+        self.wrong_dir = self._resolve_path(wrong_dir)
+        self.wrong_pure_dir = self._resolve_path(wrong_pure_dir)
+        self.normal_dir = self._resolve_path(normal_dir)
         self.fps = fps
         self.frame_size = frame_size
         self.wrong_count = 0
@@ -27,9 +31,17 @@ class ResultSaver:
         self._prepare_dirs()
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.writer = cv2.VideoWriter(self.output_video_path, fourcc, self.fps, self.frame_size)
+        if not self.writer.isOpened():
+            raise RuntimeError(f"Failed to open VideoWriter: {self.output_video_path}")
+
+    def _resolve_path(self, path):
+        path_obj = Path(path)
+        if path_obj.is_absolute():
+            return str(path_obj)
+        return str((self.base_dir / path_obj).resolve())
 
     def _prepare_dirs(self):
-        for target_dir in (self.wrong_dir, self.wrong_pure_dir):
+        for target_dir in (self.wrong_dir, self.wrong_pure_dir, self.normal_dir):
             if os.path.exists(target_dir):
                 shutil.rmtree(target_dir)
             os.makedirs(target_dir)
@@ -47,7 +59,7 @@ class ResultSaver:
 
     def save_frame(self,frame):
         self.save_count += 1
-        path=os.path.join(self.normal_dir, self.save_count)
+        path = os.path.join(self.normal_dir, f"normal{self.save_count}.jpg")
         cv2.imwrite(path, frame)
 
     def write_render_frame(self, frame):
