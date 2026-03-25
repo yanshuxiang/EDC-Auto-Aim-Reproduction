@@ -1,14 +1,14 @@
 import cv2
 
 from vision.src.capture import FrameCapture
-from vision.src.detector import Detector
+from vision.src.target_detector import TargetDetector
 from vision.src.saver import ResultSaver
 
 
 class DetectionApp:
     def __init__(
         self,
-        source="media/5.mp4",
+        source="media/1.mp4",
         output_video="output.mp4",
         min_area=1500,
         threshold_value=120,
@@ -16,7 +16,7 @@ class DetectionApp:
     ):
         self.source = source
         self.output_video = output_video
-        self.detector = Detector(min_area=min_area, threshold_value=threshold_value)
+        self.target_detector = TargetDetector(min_area=min_area, threshold_value=threshold_value)
         self.render_fps = render_fps
 
     def run(self):
@@ -32,7 +32,7 @@ class DetectionApp:
                     if not ret:
                         break
 
-                    result = self.detector.detect(frame)
+                    result = self.target_detector.detect(frame)
                     if len(result.matched_rects) != 2:
                         saver.save_wrong_frame(frame, result)
 
