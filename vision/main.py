@@ -8,7 +8,7 @@ from vision.src.saver import ResultSaver
 class DetectionApp:
     def __init__(
         self,
-        source="media/1.mp4",
+        source="media/1.mfp4",
         output_video="output.mp4",
         min_area=1500,
         threshold_value=120,
