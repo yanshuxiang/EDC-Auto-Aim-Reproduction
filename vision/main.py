@@ -34,12 +34,17 @@ class DetectionApp:
 
                     result = self.detector.detect(frame)
                     if len(result.matched_rects) != 2:
-                        saver.save_wrong_frame(frame, result.binary, result.potential_rects)
+                        saver.save_wrong_frame(frame, result)
 
-                    cv2.drawContours(frame, result.matched_rects, -1, (0, 0, 255), 3)
-                    saver.write_render_frame(frame)
-                    cv2.imshow("frame", frame)
-                    if (cv2.waitKey(20) & 0xFF) == ord("q"):
+                    render_frame = frame.copy()
+                    cv2.drawContours(render_frame, result.matched_rects, -1, (0, 0, 255), 3)
+                    saver.write_render_frame(render_frame)
+                    cv2.imshow("frame", render_frame)
+
+                    key = cv2.waitKey(20) & 0xFF
+                    if key == ord("s"):
+                        saver.save_debug_frame(frame, result)
+                    elif key == ord("q"):
                         break
             finally:
                 saver.release()
