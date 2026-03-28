@@ -81,25 +81,25 @@ class Target:
         # 创建 4 行空的二维数组（形状：(5, 0)）
         # rect_logs[[contours],[面积筛选],[矩形筛选],[长宽比筛选],[]]
         rect_logs = [[] for _ in range(5)]
-        rect_logs[0].append(contours)
+        rect_logs[0]=contours
         potential_rects = []
 
         for contour in contours:
             area=cv2.contourArea(contour)
             if area < self.min_area:
-                rect_logs[1].append(contour)
                 continue
+            rect_logs[1].append(contour)
 
             peri = cv2.arcLength(contour, True)
             approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
             if len(approx) != 4:
-                rect_logs[2].append(contour)
                 continue
+            rect_logs[2].append(contour)
 
             x, y, w, h = cv2.boundingRect(approx)
-            if w == 0 or h == 0 or w < h:
-                rect_logs[3].append(contour)
-                continue
+            # if w == 0 or h == 0 or w < h:
+            #     continue
+            # rect_logs[3].append(contour)
 
 
             potential_rects.append((contour, area,x,y,w,h))
@@ -205,6 +205,8 @@ if __name__ == "__main__":
             break
         # frame = cv2.resize(frame, (0, 0), fx=1 / 5, fy=1 / 5, interpolation=cv2.INTER_AREA)
         res = target.detect(frame)
+        if res is not None:
+            cv2.circle(frame, res, 5, (0, 0, 255), -1)
         cv2.imshow("frame", frame)
         if(cv2.waitKey(10) & 0xFF == ord('q')):
             break
