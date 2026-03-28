@@ -4,16 +4,6 @@ import numpy as np
 from dataclasses import dataclass
 from itertools import combinations
 
-
-
-@dataclass
-class Rect:
-    leftX: int
-    leftY: int
-    rightX: int
-    rightY: int
-
-
 class Target:
     def __init__(
         self,
