@@ -43,6 +43,8 @@ class Target:
         self.isdebug = debug
         self.debug_index = 0
 
+        print("debug:",self.isdebug)
+
     def preprocess(self, frame):
         """
         对输入帧执行基础预处理，生成后续轮廓检测所需的中间图像。
@@ -149,12 +151,84 @@ class Target:
                 and abs(x1 - x2) <= x_gap_limit
                 and abs(y1 - y2) <= y_gap_limit
             ):
-                matched_pairs.append((int((cx1+cx2)/2), int((cy1+cy2)/2)))
+                matched_pairs.append((one,two))
 
         return matched_pairs
 
+    def fliter(self,frame,matched_pairs):
+        final=[]
+        for one,two in matched_pairs:
+            if one[1]>two[1]:
+                contour=one[0]
+            else:
+                contour=two[0]
+            croped_img=self.warp_to_a4(frame,contour)
+            gray=cv2.cvtColor(croped_img, cv2.COLOR_BGR2GRAY)
+            binary = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY)[1]
+            kernel = np.ones((5, 5), np.uint8)
+            eroded = cv2.erode(binary, kernel, iterations=3)
+            black_ratio = np.count_nonzero(eroded == 0) / eroded.size
+            if black_ratio > 0.2:
+                final.append((one,two))
+        return final
 
 
+
+    def detect_circle(self, frame, matched_pairs):
+        pass
+
+
+
+
+    def order_points(self, pts):
+        """
+        对四边形顶点进行固定顺序排序。
+
+        输出顺序为：
+        - 左上
+        - 右上
+        - 右下
+        - 左下
+
+        该顺序是透视变换所需的标准点序，便于后续将目标区域稳定地映射到 A4 平面。
+        """
+        ordered = np.zeros((4, 2), dtype=np.float32)
+        sums = pts.sum(axis=1)
+        diffs = np.diff(pts, axis=1).reshape(-1)
+        ordered[0] = pts[np.argmin(sums)]
+        ordered[2] = pts[np.argmax(sums)]
+        ordered[1] = pts[np.argmin(diffs)]
+        ordered[3] = pts[np.argmax(diffs)]
+        return ordered
+
+    def warp_to_a4(self, frame, contour):
+        """
+        将检测到的矩形区域透视变换到预设的 A4 尺寸平面。
+
+        参数：
+        - frame: 原图
+        - contour: 轮廓
+
+        返回值：
+        - 透视矫正后的图像（A4 尺寸）
+        """
+        if contour is None or len(contour) < 4:
+            return None
+
+        peri = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
+        if len(approx) != 4:
+            return None
+
+        pts = approx.reshape(4, 2).astype(np.float32)
+        ordered = self.order_points(pts)
+        width, height = self.a4_size
+        dst = np.array(
+            [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
+            dtype=np.float32,
+        )
+        matrix = cv2.getPerspectiveTransform(ordered, dst)
+        return cv2.warpPerspective(frame, matrix, (width, height))
 
     def detect(self, frame):
         preprocessed = self.preprocess(frame)
@@ -164,10 +238,14 @@ class Target:
 
         if self.isdebug:
             self.debug(frame,rect_logs)
-
         if len(matched_pairs) == 0:
-            return None
-        return matched_pairs[0]
+            print('未检测到靶子')
+        if len(matched_pairs) > 1:
+            matched_pairs=self.fliter(frame, matched_pairs)
+
+
+        # self.detect_circle(frame, matched_pairs)
+        # return matched_pairs[0]
 
 
 if __name__ == "__main__":
@@ -183,13 +261,14 @@ if __name__ == "__main__":
                 shutil.rmtree(path)
             else:
                 os.remove(path)
-    target = Target(debug=True)
+    target = Target(debug=False)
 
 
     cap=cv2.VideoCapture("../media/2.mp4")
     cnt=0
     t1=time.time()
     while True:
+        cnt+=1
         ret, frame = cap.read()
         if not ret or frame is None:
             break
