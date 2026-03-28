@@ -1,5 +1,4 @@
-from doctest import debug
-
+from PIL import Image
 import cv2
 import numpy as np
 from dataclasses import dataclass
@@ -51,7 +50,8 @@ class Target:
         self.circle_param1 = circle_param1
         self.circle_param2 = circle_param2
         self.a4_size = a4_size
-        self.debug = debug
+        self.isdebug = debug
+        self.debug_index = 0
 
     def preprocess(self, frame):
         """
@@ -79,24 +79,26 @@ class Target:
 
     def extract_potential_rects(self, contours):
         # 创建 4 行空的二维数组（形状：(5, 0)）
+        # rect_logs[[contours],[面积筛选],[矩形筛选],[长宽比筛选],[]]
         rect_logs = [[] for _ in range(5)]
+        rect_logs[0].append(contours)
         potential_rects = []
 
         for contour in contours:
             area=cv2.contourArea(contour)
             if area < self.min_area:
-                rect_logs[0].append(contour)
+                rect_logs[1].append(contour)
                 continue
 
             peri = cv2.arcLength(contour, True)
             approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
             if len(approx) != 4:
-                rect_logs[1].append(contour)
+                rect_logs[2].append(contour)
                 continue
 
             x, y, w, h = cv2.boundingRect(approx)
             if w == 0 or h == 0 or w < h:
-                rect_logs[2].append(contour)
+                rect_logs[3].append(contour)
                 continue
 
 
@@ -108,7 +110,34 @@ class Target:
 
 
     def debug(self, frame, rect_logs):
-        pass
+        stage_names = [
+            "all_contours",
+            "rejected_by_area",
+            "rejected_by_vertices",
+            "rejected_by_bbox",
+            "final_candidates",
+        ]
+        debug_images = []
+        for stage, name in zip(rect_logs, stage_names):
+            if not stage:
+                continue
+            contours = stage[0] if name == "all_contours" and len(stage) == 1 else stage
+            canvas = frame.copy()
+            cv2.drawContours(canvas, contours, -1, (0, 0, 255), 2)
+            debug_images.append(Image.fromarray(cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)))
+
+        if not debug_images:
+            return
+
+        width, height = debug_images[0].size
+        merged = Image.new("RGB", (width * len(debug_images), height), (255, 255, 255))
+        for i, img in enumerate(debug_images):
+            merged.paste(img, (i * width, 0))
+        out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "debug", "merged"))
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, f"{self.debug_index:04d}.jpg")
+        merged.save(out_path)
+        self.debug_index += 1
 
     def match_rects(self,potential_rects):
         matched_pairs=[]
@@ -143,7 +172,7 @@ class Target:
         rect_logs, potential_rects = self.extract_potential_rects(contours)
         matched_pairs = self.match_rects(potential_rects)
 
-        if self.debug:
+        if self.isdebug:
             self.debug(frame,rect_logs)
 
         if len(matched_pairs) == 0:
@@ -153,19 +182,33 @@ class Target:
 
 if __name__ == "__main__":
     import time
-    target = Target()
-    cap=cv2.VideoCapture("../media/4.mp4")
+    import shutil
+    import os
+
+    debug_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "debug"))
+    if os.path.isdir(debug_dir):
+        for name in os.listdir(debug_dir):
+            path = os.path.join(debug_dir, name)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+    target = Target(debug=True)
+
+
+    cap=cv2.VideoCapture("../media/2.mp4")
     cnt=0
     t1=time.time()
     while True:
         ret, frame = cap.read()
         if not ret or frame is None:
             break
-        cnt += 1
-        res=target.detect(frame)
-        # if res is not None:
-        #     cv2.circle(frame,res,5,(0,0,255),-1)
-        # cv2.imshow("frame", frame)
+        # frame = cv2.resize(frame, (0, 0), fx=1 / 5, fy=1 / 5, interpolation=cv2.INTER_AREA)
+        res = target.detect(frame)
+        cv2.imshow("frame", frame)
+        if(cv2.waitKey(10) & 0xFF == ord('q')):
+            break
+
     t2=time.time()
     t=t2-t1
     fps=cnt/t
@@ -175,7 +218,3 @@ if __name__ == "__main__":
 
 cv2.destroyAllWindows()
 cap.release()
-
-
-
-
