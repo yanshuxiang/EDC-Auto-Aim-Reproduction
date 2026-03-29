@@ -14,7 +14,10 @@ while True:
     mask = cv2.inRange(hsv, lower, upper)
     dilated = cv2.dilate(mask, (5,5), iterations=2)
     # cv2.imshow("frame",frame)
-    cv2.imshow("purple_mask", dilated)
+    contours,_=cv2.findContours(dilated,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(frame,contours,-1,(0,255,0),3)
+    cv2.imshow("purple_mask", frame)
+
     if cv2.waitKey(10) & 0xFF == ord('q'):
         break
 
