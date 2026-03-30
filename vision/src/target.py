@@ -300,8 +300,3 @@ if __name__ == "__main__":
     t=t2-t1
     fps=cnt/t
     print("fps:",fps)
-
-
-
-cv2.destroyAllWindows()
-cap.release()
