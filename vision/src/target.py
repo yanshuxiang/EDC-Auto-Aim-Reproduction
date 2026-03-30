@@ -177,9 +177,6 @@ class Target:
     def detect_circle(self, frame, matched_pairs):
         pass
 
-
-
-
     def order_points(self, pts):
         """
         对四边形顶点进行固定顺序排序。
@@ -240,12 +237,31 @@ class Target:
             self.debug(frame,rect_logs)
         if len(matched_pairs) == 0:
             print('未检测到靶子')
+            return None
         if len(matched_pairs) > 1:
             matched_pairs=self.fliter(frame, matched_pairs)
+        if(len(matched_pairs) > 1):
+            return None
 
-
-        # self.detect_circle(frame, matched_pairs)
-        # return matched_pairs[0]
+        centers = []
+        for one, two in matched_pairs:
+            x1, y1, w1, h1 = one[2], one[3], one[4], one[5]
+            x2, y2, w2, h2 = two[2], two[3], two[4], two[5]
+            centers.append(
+                (
+                    (int(x1 + w1 / 2), int(y1 + h1 / 2)),
+                    (int(x2 + w2 / 2), int(y2 + h2 / 2)),
+                )
+            )
+        if not centers:
+            return None
+        points = []
+        for left, right in centers:
+            points.append(left)
+            points.append(right)
+        avg_x = int(sum(p[0] for p in points) / len(points))
+        avg_y = int(sum(p[1] for p in points) / len(points))
+        return (avg_x, avg_y)
 
 
 if __name__ == "__main__":
@@ -273,9 +289,9 @@ if __name__ == "__main__":
         if not ret or frame is None:
             break
         # frame = cv2.resize(frame, (0, 0), fx=1 / 5, fy=1 / 5, interpolation=cv2.INTER_AREA)
-        res = target.detect(frame)
-        if res is not None:
-            cv2.circle(frame, res, 5, (0, 0, 255), -1)
+        pos = target.detect(frame)
+        # if res is not None:
+        #     cv2.circle(frame, res, 5, (0, 0, 255), -1)
         cv2.imshow("frame", frame)
         if(cv2.waitKey(10) & 0xFF == ord('q')):
             break
