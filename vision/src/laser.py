@@ -9,7 +9,7 @@ class Laser:
         self,
         lower=(120, 30, 220),
         upper=(160, 255, 255),
-        dilate_kernel=(5, 5),
+        dilate_kernel=np.ones((5, 5), np.uint8),
         isdebug=False
     ):
         self.lower = lower

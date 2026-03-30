@@ -21,7 +21,7 @@ def init_dir():
 target=Target()
 laser=Laser()
 
-with FrameCapture('../media/1.mp4') as capture:
+with FrameCapture('media/2.mp4') as capture:
     while True:
         ret, frame = capture.read()
         if not ret:
@@ -30,9 +30,18 @@ with FrameCapture('../media/1.mp4') as capture:
         if isdebug:
             init_dir()
 
-        target_pos=Target.detect(frame)
-        laser_pos=Laser.detect(frame)
-        pass
+        target_pos=target.detect(frame)
+        laser_pos=laser.detect(frame)
+        cv2.circle(frame, target_pos, 5, (0,0,255), -1)
+
+        cv2.imshow('frame',frame)
+        if(cv2.waitKey(10) & 0xFF == ord('q')):
+            break
+        # if laser_pos is not None:
+        #     print("检测到激光")
+        # else:
+        #     print('未检测到激光')
+        # pass
 
 
 

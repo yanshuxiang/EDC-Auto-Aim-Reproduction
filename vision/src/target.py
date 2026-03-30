@@ -1,8 +1,10 @@
 from PIL import Image
 import cv2
 import numpy as np
-from dataclasses import dataclass
 from itertools import combinations
+import os
+import shutil
+import time
 
 class Target:
     def __init__(
@@ -236,7 +238,7 @@ class Target:
         if self.isdebug:
             self.debug(frame,rect_logs)
         if len(matched_pairs) == 0:
-            print('未检测到靶子')
+            # print('未检测到靶子')
             return None
         if len(matched_pairs) > 1:
             matched_pairs=self.fliter(frame, matched_pairs)
@@ -265,9 +267,6 @@ class Target:
 
 
 if __name__ == "__main__":
-    import time
-    import shutil
-    import os
 
     debug_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "debug"))
     if os.path.isdir(debug_dir):
