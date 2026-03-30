@@ -125,7 +125,7 @@ class Target:
         merged = Image.new("RGB", (width * len(debug_images), height), (255, 255, 255))
         for i, img in enumerate(debug_images):
             merged.paste(img, (i * width, 0))
-        out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "debug", "merged"))
+        out_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "debug", "target_merged"))
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, f"{self.debug_index:04d}.jpg")
         merged.save(out_path)
