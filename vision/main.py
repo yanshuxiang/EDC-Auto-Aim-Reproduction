@@ -25,7 +25,7 @@ laser=Laser(isdebug=debug)
 
 t=time.time()
 fps=0
-camera_source = os.getenv("CAMERA_SOURCE", "23")
+camera_source = os.getenv("CAMERA_SOURCE", "22")
 try:
     camera_source = int(camera_source)
 except ValueError:
