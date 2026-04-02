@@ -3,9 +3,10 @@ import numpy as np
 from vision.src.laser import Laser
 from vision.src.target import Target
 from vision.src.capture import FrameCapture
+from vision.src.saver import ResultSaver
 import os
 import shutil
-import time 
+import time
 
 debug=False
 
@@ -24,39 +25,55 @@ laser=Laser(isdebug=debug)
 
 t=time.time()
 fps=0
+camera_source = os.getenv("CAMERA_SOURCE", "23")
+try:
+    camera_source = int(camera_source)
+except ValueError:
+    pass
 
-with FrameCapture(23) as capture:
-    while True:
-        fps+=1
-        t1=time.time()
-        if(t1-t>1):
-            print(fps)
-            t=time.time()
-            fps=0
-        
-        ret, frame = capture.read()
-        if not ret:
-            break
+record_name = f"record_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
 
-        if debug:
-            init_dir()
+try:
+    with FrameCapture(camera_source) as capture, ResultSaver(
+        name=record_name,
+        fps=capture.get_fps(),
+        output_subdir="records",
+    ) as recorder:
+        print(f"Recording camera[{camera_source}] to: {recorder.output_path}")
+        while True:
+            fps += 1
+            t1 = time.time()
+            if t1 - t > 1:
+                print(fps)
+                t = time.time()
+                fps = 0
 
-        # target_pos=target.detect(frame)
-        # laser_pos=laser.detect(frame)
-        # cv2.circle(frame, target_pos, 5, (0,0,255), -1)
-        # if(target_pos is not None):
-        #     print(target_pos)
-        #     cv2.circle(frame,target_pos,3,(255,0,0),-1)
-        # cv2.imwrite("test.jpg",frame)
-        # cv2.imshow('frame',frame)
-        # if(cv2.waitKey(10) & 0xFF == ord('q')):
-            # break
-        # if laser_pos is not None:
-        #     print("检测到激光")
-        # else:
-        #     print('未检测到激光')
-        # pass
+            ret, frame = capture.read()
+            if not ret:
+                break
 
+            recorder.write(frame)
+
+            if debug:
+                init_dir()
+
+            # target_pos=target.detect(frame)
+            # laser_pos=laser.detect(frame)
+            # cv2.circle(frame, target_pos, 5, (0,0,255), -1)
+            # if(target_pos is not None):
+            #     print(target_pos)
+            #     cv2.circle(frame,target_pos,3,(255,0,0),-1)
+            # cv2.imwrite("test.jpg",frame)
+            # cv2.imshow('frame',frame)
+            # if(cv2.waitKey(10) & 0xFF == ord('q')):
+                # break
+            # if laser_pos is not None:
+            #     print("检测到激光")
+            # else:
+            #     print('未检测到激光')
+            # pass
+except KeyboardInterrupt:
+    print("Recording stopped by user.")
 
 
 
