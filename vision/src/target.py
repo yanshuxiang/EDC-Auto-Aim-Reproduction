@@ -19,7 +19,7 @@ class Target:
         circle_param1=120,
         circle_param2=18,
         a4_size=(420, 297),
-        debug=False
+        isdebug=False
     ):
         """
         初始化目标检测器，并保存图像预处理、轮廓筛选和圆检测所需参数。
@@ -42,7 +42,7 @@ class Target:
         self.circle_param1 = circle_param1
         self.circle_param2 = circle_param2
         self.a4_size = a4_size
-        self.isdebug = debug
+        self.isdebug = isdebug
         self.debug_index = 0
 
         print("debug:",self.isdebug)

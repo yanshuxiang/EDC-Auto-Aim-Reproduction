@@ -6,7 +6,7 @@ from vision.src.capture import FrameCapture
 import os
 import shutil
 
-isdebug=False
+debug=False
 
 def init_dir():
     debug_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "debug"))
@@ -18,25 +18,29 @@ def init_dir():
             else:
                 os.remove(path)
 
-target=Target()
-laser=Laser()
+target=Target(isdebug=debug)
+laser=Laser(isdebug=debug)
 
-with FrameCapture('media/2.mp4') as capture:
+
+with FrameCapture(23) as capture:
     while True:
         ret, frame = capture.read()
         if not ret:
             break
 
-        if isdebug:
+        if debug:
             init_dir()
 
-        target_pos=target.detect(frame)
-        laser_pos=laser.detect(frame)
-        cv2.circle(frame, target_pos, 5, (0,0,255), -1)
-
-        cv2.imshow('frame',frame)
-        if(cv2.waitKey(10) & 0xFF == ord('q')):
-            break
+        # target_pos=target.detect(frame)
+        # laser_pos=laser.detect(frame)
+        # cv2.circle(frame, target_pos, 5, (0,0,255), -1)
+        # if(target_pos is not None):
+        #     print(target_pos)
+        #     cv2.circle(frame,target_pos,3,(255,0,0),-1)
+        # cv2.imwrite("test.jpg",frame)
+        # cv2.imshow('frame',frame)
+        # if(cv2.waitKey(10) & 0xFF == ord('q')):
+            # break
         # if laser_pos is not None:
         #     print("检测到激光")
         # else:
