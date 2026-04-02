@@ -5,6 +5,7 @@ from vision.src.target import Target
 from vision.src.capture import FrameCapture
 import os
 import shutil
+import time 
 
 debug=False
 
@@ -21,9 +22,18 @@ def init_dir():
 target=Target(isdebug=debug)
 laser=Laser(isdebug=debug)
 
+t=time.time()
+fps=0
 
 with FrameCapture(23) as capture:
     while True:
+        fps+=1
+        t1=time.time()
+        if(t1-t>1):
+            print(fps)
+            t=time.time()
+            fps=0
+        
         ret, frame = capture.read()
         if not ret:
             break
