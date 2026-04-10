@@ -1,55 +1,79 @@
 import cv2
-
+import numpy as np
+from vision.src.laser import Laser
+from vision.src.target import Target
 from vision.src.capture import FrameCapture
-from vision.src.target_detector import TargetDetector
 from vision.src.saver import ResultSaver
+import os
+import shutil
+import time
+
+debug=False
+
+def init_dir():
+    debug_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "debug"))
+    if os.path.isdir(debug_dir):
+        for name in os.listdir(debug_dir):
+            path = os.path.join(debug_dir, name)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+
+target=Target(isdebug=debug)
+laser=Laser(isdebug=debug)
+
+t=time.time()
+fps=0
+camera_source = os.getenv("CAMERA_SOURCE", "22")
+try:
+    camera_source = int(camera_source)
+except ValueError:
+    pass
+
+record_name = f"record_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
+
+try:
+    with FrameCapture(camera_source) as capture, ResultSaver(
+        name=record_name,
+        fps=capture.get_fps(),
+        output_subdir="records",
+    ) as recorder:
+        print(f"Recording camera[{camera_source}] to: {recorder.output_path}")
+        while True:
+            fps += 1
+            t1 = time.time()
+            if t1 - t > 1:
+                print(fps)
+                t = time.time()
+                fps = 0
+
+            ret, frame = capture.read()
+            if not ret:
+                break
+
+            recorder.write(frame)
+
+            if debug:
+                init_dir()
+
+            # target_pos=target.detect(frame)
+            # laser_pos=laser.detect(frame)
+            # cv2.circle(frame, target_pos, 5, (0,0,255), -1)
+            # if(target_pos is not None):
+            #     print(target_pos)
+            #     cv2.circle(frame,target_pos,3,(255,0,0),-1)
+            # cv2.imwrite("test.jpg",frame)
+            # cv2.imshow('frame',frame)
+            # if(cv2.waitKey(10) & 0xFF == ord('q')):
+                # break
+            # if laser_pos is not None:
+            #     print("检测到激光")
+            # else:
+            #     print('未检测到激光')
+            # pass
+except KeyboardInterrupt:
+    print("Recording stopped by user.")
 
 
-class DetectionApp:
-    def __init__(
-        self,
-        source="media/1.mfp4",
-        output_video="output.mp4",
-        min_area=1500,
-        threshold_value=120,
-        render_fps=60.0,
-    ):
-        self.source = source
-        self.output_video = output_video
-        self.target_detector = TargetDetector(min_area=min_area, threshold_value=threshold_value)
-        self.render_fps = render_fps
 
-    def run(self):
-        with FrameCapture(self.source) as capture:
-            saver = ResultSaver(
-                output_video_path=self.output_video,
-                fps=self.render_fps,
-                frame_size=capture.get_size(),
-            )
-            try:
-                while True:
-                    ret, frame = capture.read()
-                    if not ret:
-                        break
-
-                    result = self.target_detector.detect(frame)
-                    if len(result.matched_rects) != 2:
-                        saver.save_wrong_frame(frame, result)
-
-                    render_frame = frame.copy()
-                    cv2.drawContours(render_frame, result.matched_rects, -1, (0, 0, 255), 3)
-                    saver.write_render_frame(render_frame)
-                    cv2.imshow("frame", render_frame)
-
-                    key = cv2.waitKey(20) & 0xFF
-                    if key == ord("s"):
-                        saver.save_debug_frame(frame, result)
-                    elif key == ord("q"):
-                        break
-            finally:
-                saver.release()
-                cv2.destroyAllWindows()
-
-
-if __name__ == "__main__":
-    DetectionApp().run()
