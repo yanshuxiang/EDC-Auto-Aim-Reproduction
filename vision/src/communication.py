@@ -4,8 +4,8 @@ import time
 
 class SerialCommunicator:
     """
-    Serial communication module for sending control commands to hardware (e.g., STM32/Arduino).
-    串口通讯模块，用于向下位机发送控制指令。
+    Serial communication module for sending target and actual positions to hardware.
+    串口通讯模块，按协议向下位机发送目标和实际位置数据。
     """
     def __init__(self, port='/dev/ttyUSB0', baudrate=115200, timeout=0.1):
         """
@@ -15,43 +15,45 @@ class SerialCommunicator:
         """
         try:
             self.ser = serial.Serial(port, baudrate, timeout=timeout)
-            print(f"Successfully connected to serial port: {port}")
+            print(f"Successfully connected to serial port: {port} at {baudrate} bps")
         except Exception as e:
             self.ser = None
             print(f"Warning: Could not open serial port {port}: {e}")
 
-    def send_control(self, x_out, y_out):
+    def send_data(self, target_pos, actual_pos, type_byte=0x01):
         """
-        Package and send control data.
-        打包并发送控制数据。
-        
-        Frame Format (示例协议):
-        [0xAA] [X_high] [X_low] [Y_high] [Y_low] [Checksum] [0x55]
+        Package and send coordinate data according to the 11-byte protocol.
+        打包并发送坐标数据。协议格式：
+        Byte0: 0xAA (Header)
+        Byte1: Type/Reserved
+        Byte2-3: Target X (H, L)
+        Byte4-5: Target Y (H, L)
+        Byte6-7: Actual X (H, L)
+        Byte8-9: Actual Y (H, L)
+        Byte10: 0x55 (Tail)
         """
         if self.ser is None or not self.ser.is_open:
             return False
 
         try:
-            # Map float outputs to signed 16-bit integers
-            # 将浮点输出映射为 16 位有符号整数
-            ix = int(max(min(x_out, 32767), -32768))
-            iy = int(max(min(y_out, 32767), -32768))
+            # Map coordinates to signed 16-bit integers
+            tx = int(target_pos[0]) if target_pos else 0
+            ty = int(target_pos[1]) if target_pos else 0
+            ax = int(actual_pos[0]) if actual_pos else 0
+            ay = int(actual_pos[1]) if actual_pos else 0
 
-            # Calculate a simple checksum (sum of all bytes modulo 256)
-            # 计算简单校验和
+            # Constrain to 16-bit signed range (-32768 to 32767)
+            tx = max(min(tx, 32767), -32768)
+            ty = max(min(ty, 32767), -32768)
+            ax = max(min(ax, 32767), -32768)
+            ay = max(min(ay, 32767), -32768)
+
+            # Frame Header and Tail
             header = 0xAA
             tail = 0x55
-            # Extract high and low bytes for X and Y
-            xh, xl = (ix >> 8) & 0xFF, ix & 0xFF
-            yh, yl = (iy >> 8) & 0xFF, iy & 0xFF
             
-            checksum = (header + xh + xl + yh + yl + tail) & 0xFF
-
-            # Pack data using struct: B=unsigned char, h=signed short
-            # 使用 struct 打包数据
-            # '<' little endian, 'B' header, 'h' x, 'h' y, 'B' checksum, 'B' tail
-            # Note: Protocol above uses high/low byte explicitly, here we match that manual logic
-            frame = bytearray([header, xh, xl, yh, yl, checksum, tail])
+            # Pack data: > (Big Endian), B (Header), B (Type), hhhh (4 signed shorts), B (Tail)
+            frame = struct.pack('>BBhhhhB', header, type_byte, tx, ty, ax, ay, tail)
             
             self.ser.write(frame)
             return True
@@ -65,12 +67,14 @@ class SerialCommunicator:
 
 if __name__ == "__main__":
     # Test script
-    comm = SerialCommunicator(port='/dev/ttyUSB0')
+    comm = SerialCommunicator(port='/dev/ttyUSB0', baudrate=115200)
     if comm.ser:
         while True:
             try:
-                comm.send_control(100, -100)
+                # Mock data test
+                comm.send_data((320, 240), (310, 230))
                 time.sleep(0.1)
             except KeyboardInterrupt:
                 break
         comm.close()
+
