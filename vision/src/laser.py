@@ -34,7 +34,7 @@ class Laser:
 
         contours, _ = cv2.findContours(dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         if len(contours) != 1:
-            print("contour数量错误")
+            # print("contour数量错误")
             return None
 
         M = cv2.moments(contours[0])
