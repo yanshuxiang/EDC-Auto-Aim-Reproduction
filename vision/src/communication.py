@@ -20,12 +20,12 @@ class SerialCommunicator:
             self.ser = None
             print(f"Warning: Could not open serial port {port}: {e}")
 
-    def send_data(self, target_pos, actual_pos, type_byte=0x01):
+    def send_data(self, target_pos, actual_pos):
         """
         Package and send coordinate data according to the 11-byte protocol.
         打包并发送坐标数据。协议格式：
         Byte0: 0xAA (Header)
-        Byte1: Type/Reserved
+        Byte1: Status/Found Flag (0x01 if found, 0x00 if not)
         Byte2-3: Target X (H, L)
         Byte4-5: Target Y (H, L)
         Byte6-7: Actual X (H, L)
@@ -36,6 +36,9 @@ class SerialCommunicator:
             return False
 
         try:
+            # Check if target is found
+            is_found = 0x01 if target_pos is not None else 0x00
+            
             # Map coordinates to signed 16-bit integers
             tx = int(target_pos[0]) if target_pos else 0
             ty = int(target_pos[1]) if target_pos else 0
@@ -52,8 +55,8 @@ class SerialCommunicator:
             header = 0xAA
             tail = 0x55
             
-            # Pack data: > (Big Endian), B (Header), B (Type), hhhh (4 signed shorts), B (Tail)
-            frame = struct.pack('>BBhhhhB', header, type_byte, tx, ty, ax, ay, tail)
+            # Pack data: > (Big Endian), B (Header), B (Status), hhhh (4 signed shorts), B (Tail)
+            frame = struct.pack('>BBhhhhB', header, is_found, tx, ty, ax, ay, tail)
             
             self.ser.write(frame)
             return True

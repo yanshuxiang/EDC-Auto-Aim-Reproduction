@@ -56,6 +56,9 @@ try:
         tar_pos=target.detect(frame)
         las_pos=laser.detect(frame)
         
+        # 发送数据到串口
+        serial.send_data(tar_pos, las_pos)
+        
         # 修改：只在需要录制时才写入视频
         if record_video and recorder is not None:
             try:
