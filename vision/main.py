@@ -5,6 +5,7 @@ from vision.src.target import Target
 from vision.src.capture import FrameCapture
 from vision.src.saver import ResultSaver
 from vision.src.communication import SerialCommunicator
+from vision.src.filter import KalmanFilterTracker
 import os
 import shutil
 import time
@@ -29,6 +30,7 @@ laser=Laser(isdebug=debug)
 capture=FrameCapture(40, width=640, height=480, fps=120)
 saver=ResultSaver()
 serial=SerialCommunicator()
+tracker=KalmanFilterTracker(dt=1/120, lost_threshold=10)
 
 
 # 修改：只在需要录制时才创建recorder
@@ -56,8 +58,11 @@ try:
         tar_pos=target.detect(frame)
         las_pos=laser.detect(frame)
         
-        # 发送数据到串口
-        serial.send_data(tar_pos, las_pos)
+        # 使用卡尔曼滤波处理目标位置，以平滑抖动并在短暂丢失时预测
+        filtered_pos, is_tracking = tracker.update(tar_pos)
+        
+        # 发送数据到串口 (使用滤波后的坐标和追踪标志)
+        serial.send_data(filtered_pos, las_pos, is_found=is_tracking)
         
         # 修改：只在需要录制时才写入视频
         if record_video and recorder is not None:

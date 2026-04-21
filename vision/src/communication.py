@@ -20,7 +20,7 @@ class SerialCommunicator:
             self.ser = None
             print(f"Warning: Could not open serial port {port}: {e}")
 
-    def send_data(self, target_pos, actual_pos):
+    def send_data(self, target_pos, actual_pos, is_found=None):
         """
         Package and send coordinate data according to the 11-byte protocol.
         打包并发送坐标数据。协议格式：
@@ -36,8 +36,11 @@ class SerialCommunicator:
             return False
 
         try:
-            # Check if target is found
-            is_found = 0x01 if target_pos is not None else 0x00
+            # Use explicit flag if provided, otherwise derive from target_pos
+            if is_found is None:
+                is_found = 0x01 if target_pos is not None else 0x00
+            else:
+                is_found = 0x01 if is_found else 0x00
             
             # Map coordinates to signed 16-bit integers
             tx = int(target_pos[0]) if target_pos else 0
