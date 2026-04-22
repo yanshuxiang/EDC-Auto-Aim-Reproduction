@@ -32,12 +32,12 @@ class Laser:
         lower=(100, 0, 170),
         upper=(170, 255, 255),
         dilate_kernel=np.ones((3, 3), np.uint8),
-        min_area=2.0,
+        min_area=1.0,
         max_area=1500.0,
         adaptive_v=True,
         v_floor=90,
         v_percentile=97,
-        v_offset=55,
+        v_offset=30,
         roi_size=220,
         max_jump=120.0,
         max_coast_frames=6,
@@ -219,7 +219,7 @@ class Laser:
             mask_fallback = cv2.inRange(hsv, fallback_lower, fallback_upper)
             mask = cv2.bitwise_or(mask_main, mask_fallback)
 
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.dilate_kernel, iterations=1)
+        # 移除 MORPH_OPEN 以防止由于腐蚀操作导致微小激光点丢失
         mask = cv2.dilate(mask, self.dilate_kernel, iterations=1)
         return mask
 
@@ -240,22 +240,15 @@ class Laser:
         y2 = min(height, y1 + roi_h)
         return x1, y1, x2, y2
 
-    def _extract_candidates(self, hsv, mask, offset_x=0, offset_y=0):
+    def _extract_candidates(self, hsv, mask, offset_x=0, offset_y=0, debug_frame=None):
         """
         从掩码中提取并筛选候选点。
 
         参数：
         - hsv: 对应区域的 HSV 图像。
         - mask: 对应区域的二值掩码。
-        - offset_x / offset_y:
-          当 mask 来自 ROI（局部裁剪）时，需要把局部坐标映射回全图坐标。
-
-        候选筛选规则：
-        1) 面积区间过滤。
-        2) 计算亮度均值与质心坐标作为后续打分输入。
-
-        返回：
-        - 候选列表（每项含 center/area/mean_v）。
+        - offset_x / offset_y: 局部坐标映射回全图坐标。
+        - debug_frame: 若开启 debug，将在此帧上绘制所有轮廓的筛选状态。
         """
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
@@ -266,6 +259,12 @@ class Laser:
         contour_mask = np.zeros(mask.shape, dtype=np.uint8)
         for contour in contours:
             area = cv2.contourArea(contour)
+
+            # --- Debug 绘制：面积过滤 ---
+            if debug_frame is not None:
+                color = (0, 0, 255) if (area < self.min_area or area > self.max_area) else (255, 255, 0)
+                cv2.drawContours(debug_frame, [contour], -1, color, 1)
+
             if area < self.min_area or area > self.max_area:
                 continue
 
@@ -420,33 +419,57 @@ class Laser:
     def detect(self, frame):
         """
         执行一次完整检测并更新内部状态。
-
-        修改说明：
-        - 始终限制在中央 ROI（center_roi）范围内搜索，不进行全图回退。
-        - 理由：激光在物理意义上基本只出现在画面中央，全图搜索会增加背景干扰。
-
-        返回：
-        - (x, y): 目标坐标
-        - None: 丢失状态
         """
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         predicted = self._predict()
 
-        # 始终在中心 ROI 检测，降低边缘背景干扰
+        # 1. 计算 ROI 范围
         h, w = hsv.shape[:2]
         x1, y1, x2, y2 = self._center_roi_bounds(w, h)
-        center_roi = hsv[y1:y2, x1:x2]
-        center_mask = self._build_mask(center_roi, allow_fallback=True)
-        candidates = self._extract_candidates(center_roi, center_mask, offset_x=x1, offset_y=y1)
+        center_roi_hsv = hsv[y1:y2, x1:x2]
 
+        # 2. 如果开启 Debug，准备彩色画布（仅 ROI 部分）
+        debug_canvas = None
+        v_low_current = 0
         if self.isdebug:
-            self.debug(center_mask)
+            debug_canvas = frame[y1:y2, x1:x2].copy()
+            v_low_current = self._calc_v_lower(center_roi_hsv[:, :, 2])
+
+        # 3. 核心检测流程
+        center_mask = self._build_mask(center_roi_hsv, allow_fallback=True)
+        candidates = self._extract_candidates(center_roi_hsv, center_mask, 
+                                            offset_x=x1, offset_y=y1, 
+                                            debug_frame=debug_canvas)
 
         best, confidence = self._select_best(candidates, predicted)
+
+        # 4. Debug 信息绘制与控制台输出
+        if self.isdebug and debug_canvas is not None:
+            # 标记所有入选但非最佳的点（青色）
+            for cand in candidates:
+                local_pt = (int(cand["center"][0] - x1), int(cand["center"][1] - y1))
+                cv2.circle(debug_canvas, local_pt, 3, (255, 255, 0), 1)
+
+            # 水印信息
+            status_text = f"V-Low: {v_low_current} | Mode: {self.last_result['mode']}"
+            cv2.putText(debug_canvas, status_text, (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+            
+            if best is None:
+                cv2.putText(debug_canvas, "LOST: No Candidate", (5, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            else:
+                # 标记最佳点（绿色）
+                best_local_pt = (int(best["center"][0] - x1), int(best["center"][1] - y1))
+                cv2.circle(debug_canvas, best_local_pt, 6, (0, 255, 0), 2)
+
+            self.debug(debug_canvas)
+
+        # 5. 结果处理与 Jump 检查
         if best is not None:
             if predicted is not None:
                 jump = float(np.linalg.norm(best["center"] - predicted))
                 if jump > self.max_jump:
+                    if self.isdebug:
+                        print(f"[Laser Debug] Jump rejected: {jump:.1f} > {self.max_jump}")
                     return self._update_state_without_measurement()
             return self._update_state_with_measurement(best["center"], confidence)
 

@@ -28,7 +28,7 @@ def init_dir():
 # 初始化 debug 目录
 init_dir()
 
-target=Target(isdebug=debug)
+target=Target(debug=debug, debug_save_images=debug)
 laser=Laser(isdebug=debug)
 capture=FrameCapture(40, width=640, height=480, fps=120)
 saver=ResultSaver()
@@ -91,6 +91,4 @@ try:
 
 except KeyboardInterrupt:
     print("Recording stopped by user.")
-
-
 
