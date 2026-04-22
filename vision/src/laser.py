@@ -14,9 +14,9 @@ class Laser:
 
     检测+跟踪主流程概览：
     1) 颜色与亮度阈值分割（HSV）得到候选掩码。
-    2) 轮廓级候选筛选（面积、圆度、实心度）排除噪点与非激光斑。
-    3) 候选打分（亮度 + 形状 + 与预测位置距离）选最优目标。
-    4) 若连续帧稳定，优先在 ROI（局部区域）搜索，提高速度和抗干扰能力。
+    2) 轮廓级候选筛选（面积）排除明显噪点与大块干扰。
+    3) 候选打分（亮度 + 与预测位置距离）选最优目标。
+    4) 始终在中心 ROI 区域搜索，利用物理约束抑制背景反光。
     5) 若当前帧检测不到，进入短时“预测延续”模式；超时后判定彻底丢失。
 
     输出兼容旧接口：
@@ -29,20 +29,23 @@ class Laser:
 
     def __init__(
         self,
-        lower=(120, 30, 220),
-        upper=(160, 255, 255),
+        lower=(100, 0, 170),
+        upper=(170, 255, 255),
         dilate_kernel=np.ones((3, 3), np.uint8),
-        min_area=5.0,
-        max_area=500.0,
-        min_circularity=0.35,
-        min_solidity=0.5,
+        min_area=2.0,
+        max_area=1500.0,
         adaptive_v=True,
-        v_floor=120,
-        v_percentile=98,
-        v_offset=35,
-        roi_size=160,
-        max_jump=80.0,
-        max_coast_frames=4,
+        v_floor=90,
+        v_percentile=97,
+        v_offset=55,
+        roi_size=220,
+        max_jump=120.0,
+        max_coast_frames=6,
+        use_center_roi=True,
+        center_roi_ratio=0.3,
+        enable_white_fallback=True,
+        fallback_s_max=110,
+        fallback_v_boost=8,
         ema_alpha=0.65,
         isdebug=False,
     ):
@@ -60,14 +63,6 @@ class Laser:
         - min_area / max_area:
           轮廓面积过滤区间（像素面积）。
           太小一般是噪声，太大通常是灯带/反光斑/大面积干扰。
-
-        - min_circularity:
-          最小圆度阈值。圆度公式为 4πA/P²，越接近 1 越像圆。
-          激光点通常比较接近圆斑，圆度过低常见于条纹反光。
-
-        - min_solidity:
-          最小实心度阈值。实心度 = area / convex_hull_area。
-          可过滤“空心/破碎/锯齿”轮廓。
 
         - adaptive_v:
           是否启用亮度阈值自适应（仅自适应 V 下限）。
@@ -91,6 +86,16 @@ class Laser:
         - max_coast_frames:
           最大“无测量预测延续”帧数。超过后进入 lost 状态并返回 None。
 
+        - use_center_roi / center_roi_ratio:
+          在尚未稳定跟踪时，优先只在画面中心区域搜索激光点。
+          这样可以显著减少桌面边缘、背景反光的干扰。
+
+        - enable_white_fallback / fallback_s_max / fallback_v_boost:
+          低饱和高亮兜底检测。很多相机下激光点会被拍成“偏白高亮点”而不纯紫，
+          该分支用于补偿这类情况：
+          * fallback_s_max: 允许的最大饱和度（越小越偏“白”）
+          * fallback_v_boost: 相对动态阈值再抬高一点，避免低亮度白噪声进入。
+
         - ema_alpha:
           位置更新的指数平滑权重。越大越跟随新测量，越小越平滑。
 
@@ -102,8 +107,6 @@ class Laser:
         self.dilate_kernel = dilate_kernel
         self.min_area = float(min_area)
         self.max_area = float(max_area)
-        self.min_circularity = float(min_circularity)
-        self.min_solidity = float(min_solidity)
         self.adaptive_v = adaptive_v
         self.v_floor = int(v_floor)
         self.v_percentile = int(v_percentile)
@@ -111,6 +114,11 @@ class Laser:
         self.roi_size = int(roi_size)
         self.max_jump = float(max_jump)
         self.max_coast_frames = int(max_coast_frames)
+        self.use_center_roi = bool(use_center_roi)
+        self.center_roi_ratio = float(center_roi_ratio)
+        self.enable_white_fallback = bool(enable_white_fallback)
+        self.fallback_s_max = int(fallback_s_max)
+        self.fallback_v_boost = int(fallback_v_boost)
         self.ema_alpha = float(ema_alpha)
         self.isdebug = isdebug
         self.debug_index = 0
@@ -187,23 +195,50 @@ class Laser:
         dynamic_v = min(dynamic_v, int(self.upper[2]) - 1)
         return max(dynamic_v, 0)
 
-    def _build_mask(self, hsv):
+    def _build_mask(self, hsv, allow_fallback=True):
         """
         基于 HSV 生成候选掩码。
 
         处理步骤：
         - 先算动态 V 下限；
-        - inRange 做颜色+亮度阈值分割；
+        - inRange 做颜色+亮度阈值分割（主分支）；
+        - 可选：低饱和高亮兜底分支（补偿“偏白激光点”）；
         - OPEN 去除孤立噪点；
         - DILATE 适度连接弱断裂区域，稳定轮廓。
         """
         v_lower = self._calc_v_lower(hsv[:, :, 2])
         lower = np.array((self.lower[0], self.lower[1], v_lower), dtype=np.uint8)
         upper = np.array(self.upper, dtype=np.uint8)
-        mask = cv2.inRange(hsv, lower, upper)
+        mask_main = cv2.inRange(hsv, lower, upper)
+
+        mask = mask_main
+        if allow_fallback and self.enable_white_fallback:
+            fallback_v = min(255, max(v_lower + self.fallback_v_boost, self.v_floor))
+            fallback_lower = np.array((0, 0, fallback_v), dtype=np.uint8)
+            fallback_upper = np.array((179, min(255, self.fallback_s_max), 255), dtype=np.uint8)
+            mask_fallback = cv2.inRange(hsv, fallback_lower, fallback_upper)
+            mask = cv2.bitwise_or(mask_main, mask_fallback)
+
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.dilate_kernel, iterations=1)
         mask = cv2.dilate(mask, self.dilate_kernel, iterations=1)
         return mask
+
+    def _center_roi_bounds(self, width, height):
+        """
+        计算画面中心 ROI 边界。
+
+        ratio 取值范围会被夹到 [0.2, 1.0]：
+        - 过小会非常容易漏掉目标；
+        - 大于 1 没意义（等同全图）。
+        """
+        ratio = min(max(self.center_roi_ratio, 0.2), 1.0)
+        roi_w = int(width * ratio)
+        roi_h = int(height * ratio)
+        x1 = max(0, (width - roi_w) // 2)
+        y1 = max(0, (height - roi_h) // 2)
+        x2 = min(width, x1 + roi_w)
+        y2 = min(height, y1 + roi_h)
+        return x1, y1, x2, y2
 
     def _extract_candidates(self, hsv, mask, offset_x=0, offset_y=0):
         """
@@ -217,12 +252,10 @@ class Laser:
 
         候选筛选规则：
         1) 面积区间过滤。
-        2) 圆度过滤。
-        3) 实心度过滤。
-        4) 计算亮度均值与质心坐标作为后续打分输入。
+        2) 计算亮度均值与质心坐标作为后续打分输入。
 
         返回：
-        - 候选列表（每项含 center/area/circularity/solidity/mean_v）。
+        - 候选列表（每项含 center/area/mean_v）。
         """
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
@@ -240,18 +273,6 @@ class Laser:
             if peri <= 1e-6:
                 continue
 
-            circularity = float((4.0 * np.pi * area) / (peri * peri))
-            if circularity < self.min_circularity:
-                continue
-
-            hull = cv2.convexHull(contour)
-            hull_area = cv2.contourArea(hull)
-            if hull_area <= 1e-6:
-                continue
-            solidity = float(area / hull_area)
-            if solidity < self.min_solidity:
-                continue
-
             contour_mask.fill(0)
             cv2.drawContours(contour_mask, [contour], -1, 255, -1)
             mean_v = float(cv2.mean(v_channel, mask=contour_mask)[0])
@@ -266,8 +287,6 @@ class Laser:
                 {
                     "center": np.array([cx, cy], dtype=np.float32),
                     "area": float(area),
-                    "circularity": circularity,
-                    "solidity": solidity,
                     "mean_v": mean_v,
                     "contour": contour,
                 }
@@ -279,8 +298,7 @@ class Laser:
         对候选点进行打分，选择最佳目标。
 
         打分组成：
-        - 亮度得分（权重 0.65）：激光通常在候选中更亮。
-        - 形状得分（权重 0.25）：圆度与实心度平均。
+        - 亮度得分（权重 0.75）：激光通常在候选中更亮。
         - 距离得分（权重 0.25，可选）：越接近预测位置越可信。
 
         说明：
@@ -294,8 +312,7 @@ class Laser:
         best_score = -1.0
         for item in candidates:
             brightness_score = min(max(item["mean_v"] / 255.0, 0.0), 1.0)
-            shape_score = 0.5 * min(item["circularity"], 1.0) + 0.5 * min(item["solidity"], 1.0)
-            score = 0.65 * brightness_score + 0.25 * shape_score
+            score = 0.75 * brightness_score
 
             if predicted is not None:
                 dist = float(np.linalg.norm(item["center"] - predicted))
@@ -399,78 +416,36 @@ class Laser:
         }
         return None
 
-    def _try_roi_detection(self, hsv, predicted):
-        """
-        在预测位置周围做局部 ROI 检测。
-
-        作用：
-        - 降低计算量；
-        - 限制空间范围，减少“远处强反光”对当前目标的抢占。
-
-        返回：
-        - candidates: ROI 内候选（已映射为全图坐标）
-        - mask: ROI 对应掩码（用于 debug）
-        """
-        if predicted is None:
-            return [], None
-
-        height, width = hsv.shape[:2]
-        half = self.roi_size // 2
-        px = int(round(predicted[0]))
-        py = int(round(predicted[1]))
-        x1 = max(0, px - half)
-        y1 = max(0, py - half)
-        x2 = min(width, px + half)
-        y2 = min(height, py + half)
-
-        if x2 <= x1 or y2 <= y1:
-            return [], None
-
-        roi = hsv[y1:y2, x1:x2]
-        mask = self._build_mask(roi)
-        return self._extract_candidates(roi, mask, offset_x=x1, offset_y=y1), mask
 
     def detect(self, frame):
         """
         执行一次完整检测并更新内部状态。
 
-        主过程：
-        1) 计算预测位置（若轨迹存在）。
-        2) 如果轨迹有效，先尝试 ROI 局部检测；失败则回退全图检测。
-        3) 对候选打分选最优。
-        4) 若有候选，先做“突变门限”检查：
-           - 若相对预测跳变过大，判为异常测量，走无测量分支；
-           - 否则接收测量并更新状态。
-        5) 若无候选，走无测量分支（短时预测续跟或最终 lost）。
+        修改说明：
+        - 始终限制在中央 ROI（center_roi）范围内搜索，不进行全图回退。
+        - 理由：激光在物理意义上基本只出现在画面中央，全图搜索会增加背景干扰。
 
         返回：
-        - (x, y): measured 或 predicted 模式下的输出坐标
-        - None: lost 模式下输出
+        - (x, y): 目标坐标
+        - None: 丢失状态
         """
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         predicted = self._predict()
 
-        candidates = []
-        debug_mask = None
+        # 始终在中心 ROI 检测，降低边缘背景干扰
+        h, w = hsv.shape[:2]
+        x1, y1, x2, y2 = self._center_roi_bounds(w, h)
+        center_roi = hsv[y1:y2, x1:x2]
+        center_mask = self._build_mask(center_roi, allow_fallback=True)
+        candidates = self._extract_candidates(center_roi, center_mask, offset_x=x1, offset_y=y1)
 
-        if self.last_pos is not None and self.lost_count <= self.max_coast_frames:
-            candidates, roi_mask = self._try_roi_detection(hsv, predicted)
-            if roi_mask is not None:
-                debug_mask = roi_mask
-
-        if not candidates:
-            full_mask = self._build_mask(hsv)
-            candidates = self._extract_candidates(hsv, full_mask)
-            debug_mask = full_mask
-
-        if self.isdebug and debug_mask is not None:
-            self.debug(debug_mask)
+        if self.isdebug:
+            self.debug(center_mask)
 
         best, confidence = self._select_best(candidates, predicted)
         if best is not None:
             if predicted is not None:
                 jump = float(np.linalg.norm(best["center"] - predicted))
-                # 跳变过大通常是误检（例如突然切到别的反光点），先拒绝该测量
                 if jump > self.max_jump:
                     return self._update_state_without_measurement()
             return self._update_state_with_measurement(best["center"], confidence)
